@@ -229,10 +229,16 @@
   /* Browser */
   .browser-wrap{display:flex;flex-direction:column;height:100%;}
   .browser-bar{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--glass-border);}
-  .browser-bar button{background:var(--glass-bg);border:1px solid var(--glass-border);color:var(--text-primary);width:30px;height:30px;border-radius:50%;cursor:pointer;font-size:14px;}
+  .browser-bar button{background:var(--glass-bg);border:1px solid var(--glass-border);color:var(--text-primary);width:30px;height:30px;border-radius:50%;cursor:pointer;font-size:14px;flex:none;}
+  .browser-bar button.wide-btn{width:auto;border-radius:999px;padding:0 12px;font-size:12px;white-space:nowrap;}
   #browser-url{flex:1;padding:8px 14px;border-radius:999px;border:1px solid var(--glass-border);background:var(--glass-bg);color:var(--text-primary);font-size:12.5px;outline:none;}
   .browser-page{flex:1;overflow-y:auto;padding:36px 48px;}
   .bp-hero{font-family:var(--font-display);font-size:30px;font-weight:700;margin-bottom:8px;}
+  .browser-frame-wrap{flex:1;position:relative;background:#fff;}
+  .browser-frame-wrap iframe{width:100%;height:100%;border:none;display:block;}
+  #browser-blocked-note{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:var(--window-bg);color:var(--text-primary);text-align:center;padding:30px;}
+  #browser-blocked-note.show{display:flex;}
+  #browser-loading-bar{height:2px;background:var(--accent);width:0%;transition:width .3s ease;}
 
   /* App Store */
   .store-wrap{padding:22px 26px;overflow-y:auto;height:100%;}
@@ -1197,7 +1203,13 @@ APPS.notes = {
   render(){
     return '<div class="notes-wrap">'+
       '<div class="notes-list" id="notes-list"></div>'+
-      '<div class="notes-editor"><input id="note-title-input" placeholder="Title"/><textarea id="note-body-input" placeholder="Start typing..."></textarea></div>'+
+      '<div class="notes-editor">'+
+        '<div style="display:flex;align-items:center;gap:8px;padding:16px 20px 0;">'+
+          '<input id="note-title-input" placeholder="Title" style="flex:1;padding:0;"/>'+
+          '<button class="ghost-btn" id="note-export" title="Download this note as a .txt file">⬇ Export</button>'+
+        '</div>'+
+        '<textarea id="note-body-input" placeholder="Start typing..."></textarea>'+
+      '</div>'+
     '</div>';
   },
   init(winEl){
@@ -1205,6 +1217,13 @@ APPS.notes = {
     const list = winEl.querySelector('#notes-list');
     const titleInput = winEl.querySelector('#note-title-input');
     const bodyInput = winEl.querySelector('#note-body-input');
+    winEl.querySelector('#note-export').addEventListener('click', ()=>{
+      const n = NOTES_STORE.find(n=>n.id===activeId);
+      if(!n){ return; }
+      const safeName = (n.title || 'Untitled').replace(/[^a-z0-9 -]/gi,'').trim() || 'Untitled';
+      downloadText(n.body || '', safeName + '.txt');
+      notify('Note exported', safeName+'.txt was downloaded.', '📝');
+    });
     function renderList(){
       list.innerHTML = '';
       const addBtn = el('button',{class:'pill-btn', style:'width:100%;margin-bottom:10px;', html:'+ New note'});
@@ -1243,13 +1262,6 @@ APPS.notes = {
 APPS.calculator = {
   title:'Calculator', icon:'🔢', width:300, height:420,
   render(){
-    const rows = [
-      ['C','±','%','÷'],
-      ['7','8','9','×'],
-      ['4','5','6','−'],
-      ['1','2','3','+'],
-      ['0','.','=']
-    ];
     let html = '<div class="calc-wrap"><div id="calc-display"><div class="prev" id="calc-prev">&nbsp;</div><div id="calc-current">0</div></div><div class="calc-grid">';
     html += '<button class="calc-btn" data-k="C">C</button>';
     html += '<button class="calc-btn" data-k="±">±</button>';
@@ -1298,50 +1310,117 @@ APPS.calculator = {
   }
 };
 
-/* ---- Browser ---- */
-const BROWSER_PAGES = {
-  'lumen://home': {title:'Lumen Start', html:'<div class="bp-hero">Lumen Start</div><p class="muted">Your simulated home page. Try searching for something below, or visit a shortcut.</p><div style="display:flex;gap:12px;margin-top:20px;"><div class="widget-card" style="flex:1;"><h4>Shortcuts</h4><p style="font-size:12.5px;">weather · news · about</p></div></div>'},
-  'lumen://weather': {title:'Weather', html:'<div class="bp-hero">🌤️ Weather</div><p>Jacksonville, FL — 88°F, partly cloudy with a light breeze. Highs near 90° this week.</p>'},
-  'lumen://news': {title:'Daily Brief', html:'<div class="bp-hero">📰 Daily Brief</div><p class="muted">Top story: Local desktop environment ships three major updates in one release, adds lock screen and widgets.</p><p class="muted">In other news: window manager gains snap-free dragging, users rejoice.</p>'},
-  'lumen://about': {title:'About Lumen', html:'<div class="bp-hero">About Lumen OS</div><p class="muted">Lumen OS is a fictional desktop environment built entirely for this demo — no real network access, just a bit of imagination.</p>'},
-};
+/* ---- Browser (REAL navigation via iframe + real search links) ---- */
 APPS.browser = {
-  title:'Browser', icon:'🌐', width:700, height:480,
+  title:'Browser', icon:'🌐', width:760, height:520,
   render(){
     return '<div class="browser-wrap">'+
-      '<div class="browser-bar"><button id="br-back">←</button><button id="br-fwd">→</button><input id="browser-url" value="lumen://home"/><button id="br-go">Go</button></div>'+
-      '<div class="browser-page" id="browser-page"></div>'+
+      '<div class="browser-bar">'+
+        '<button id="br-back" title="Back">←</button>'+
+        '<button id="br-fwd" title="Forward">→</button>'+
+        '<button id="br-reload" title="Reload">⟳</button>'+
+        '<input id="browser-url" value="https://en.wikipedia.org/wiki/Special:Random"/>'+
+        '<button id="br-go" class="wide-btn">Go</button>'+
+        '<button id="br-newtab" class="wide-btn" title="Open in a real new tab">↗ New tab</button>'+
+      '</div>'+
+      '<div id="browser-loading-bar"></div>'+
+      '<div class="browser-frame-wrap">'+
+        '<iframe id="browser-iframe" src="about:blank" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>'+
+        '<div id="browser-blocked-note">'+
+          '<div style="font-size:34px;">🚫</div>'+
+          '<div style="font-family:var(--font-display);font-size:16px;font-weight:700;">This site refuses to load in an embedded window</div>'+
+          '<div class="muted" style="max-width:340px;font-size:12.5px;">Most sites block embedding for security (X-Frame-Options / CSP). Open it in a real browser tab instead.</div>'+
+          '<button class="pill-btn" id="br-open-blocked">↗ Open in new tab</button>'+
+        '</div>'+
+      '</div>'+
     '</div>';
   },
   init(winEl){
-    let history_ = ['lumen://home']; let idx = 0;
+    let history_ = []; let idx = -1;
     const urlInput = winEl.querySelector('#browser-url');
-    const page = winEl.querySelector('#browser-page');
-    function render(){
-      const url = history_[idx];
-      urlInput.value = url;
-      if(BROWSER_PAGES[url]){ page.innerHTML = BROWSER_PAGES[url].html; }
-      else {
-        const q = url.replace('lumen-search://','');
-        page.innerHTML = '<div class="bp-hero">Results for "'+q+'"</div>'+
-          '<p class="muted">No live web access in this simulation — but here are some make-believe results.</p>'+
-          '<div class="widget-card"><h4>'+q+' — Overview</h4><p style="font-size:12.5px;">A simulated summary about '+q+' would appear here.</p></div>'+
-          '<div class="widget-card"><h4>'+q+' — Related</h4><p style="font-size:12.5px;">More simulated results, because Lumen OS does not reach the real internet.</p></div>';
+    const iframe = winEl.querySelector('#browser-iframe');
+    const bar = winEl.querySelector('#browser-loading-bar');
+    const blockedNote = winEl.querySelector('#browser-blocked-note');
+    let loadTimer = null;
+    let loadedOnce = false;
+
+    // Sites known to actively block iframe embedding (they render their own
+    // "content blocked" page inside the frame instead of failing to load,
+    // so a timeout-based detector can't catch them — we just know in advance).
+    const KNOWN_BLOCKED = ['youtube.com','google.com','twitter.com','x.com','instagram.com',
+      'facebook.com','amazon.com','netflix.com','tiktok.com','linkedin.com','reddit.com',
+      'spotify.com','github.com','chatgpt.com','openai.com'];
+    function hostnameOf(url){
+      try{ return new URL(url).hostname.replace(/^www\./,''); }catch(e){ return ''; }
+    }
+    function isKnownBlocked(url){
+      const h = hostnameOf(url);
+      return KNOWN_BLOCKED.some(d => h === d || h.endsWith('.'+d));
+    }
+
+    function normalizeUrl(raw){
+      let v = raw.trim();
+      if(!v) return null;
+      const hasScheme = /^[a-z]+:[/][/]/i.test(v);
+      const looksLikeDomain = !v.includes(' ') && /[.][a-z]{2,}/i.test(v);
+      if(!hasScheme && !looksLikeDomain){
+        return 'https://duckduckgo.com/html/?q=' + encodeURIComponent(v);
       }
+      if(!hasScheme) v = 'https://' + v;
+      return v;
     }
-    function go(url){
-      history_ = history_.slice(0, idx+1);
-      history_.push(url); idx = history_.length-1; render();
+
+    function navigate(rawUrl, pushHistory){
+      const url = normalizeUrl(rawUrl);
+      if(!url) return;
+      urlInput.value = url;
+      blockedNote.classList.remove('show');
+      loadedOnce = false;
+      clearTimeout(loadTimer);
+
+      if(isKnownBlocked(url)){
+        iframe.src = 'about:blank';
+        bar.style.width = '0%';
+        blockedNote.classList.add('show');
+        if(pushHistory !== false){
+          history_ = history_.slice(0, idx+1);
+          history_.push(url);
+          idx = history_.length - 1;
+        }
+        return;
+      }
+
+      bar.style.width = '15%';
+      iframe.src = url;
+      if(pushHistory !== false){
+        history_ = history_.slice(0, idx+1);
+        history_.push(url);
+        idx = history_.length - 1;
+      }
+      loadTimer = setTimeout(()=>{
+        if(!loadedOnce){
+          bar.style.width = '0%';
+          blockedNote.classList.add('show');
+        }
+      }, 3500);
     }
-    winEl.querySelector('#br-go').addEventListener('click', ()=>{
-      let val = urlInput.value.trim();
-      if(!BROWSER_PAGES[val]) val = 'lumen-search://' + val;
-      go(val);
+    iframe.addEventListener('load', ()=>{
+      if(iframe.src === 'about:blank') return;
+      loadedOnce = true;
+      bar.style.width = '100%';
+      setTimeout(()=>{ bar.style.width = '0%'; }, 400);
+      // try to detect same-origin block (most cross-origin loads will just throw here, which is fine/expected)
+      try{ void iframe.contentWindow.location.href; }catch(e){}
     });
-    urlInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter') winEl.querySelector('#br-go').click(); });
-    winEl.querySelector('#br-back').addEventListener('click', ()=>{ if(idx>0){ idx--; render(); } });
-    winEl.querySelector('#br-fwd').addEventListener('click', ()=>{ if(idx<history_.length-1){ idx++; render(); } });
-    render();
+    winEl.querySelector('#br-go').addEventListener('click', ()=> navigate(urlInput.value));
+    urlInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter') navigate(urlInput.value); });
+    winEl.querySelector('#br-back').addEventListener('click', ()=>{ if(idx>0){ idx--; navigate(history_[idx], false); } });
+    winEl.querySelector('#br-fwd').addEventListener('click', ()=>{ if(idx<history_.length-1){ idx++; navigate(history_[idx], false); } });
+    winEl.querySelector('#br-reload').addEventListener('click', ()=>{ if(history_[idx]) navigate(history_[idx], false); });
+    winEl.querySelector('#br-newtab').addEventListener('click', ()=>{ window.open(normalizeUrl(urlInput.value) || 'about:blank', '_blank', 'noopener'); });
+    winEl.querySelector('#br-open-blocked').addEventListener('click', ()=>{ window.open(urlInput.value, '_blank', 'noopener'); });
+
+    navigate(urlInput.value);
   }
 };
 
@@ -1393,7 +1472,8 @@ APPS.paint = {
     let sw = colors.map((c,i)=>'<div class="paint-swatch'+(i===0?' selected':'')+'" data-c="'+c+'" style="background:'+c+';"></div>').join('');
     return '<div class="paint-wrap"><div class="paint-toolbar">'+sw+
       '<input type="range" min="1" max="24" value="4" id="paint-size"/>'+
-      '<button class="ghost-btn" id="paint-clear">Clear</button></div>'+
+      '<button class="ghost-btn" id="paint-clear">Clear</button>'+
+      '<button class="pill-btn" id="paint-export" style="margin-left:auto;">⬇ Export PNG</button></div>'+
       '<canvas id="paint-canvas"></canvas></div>';
   },
   init(winEl){
@@ -1415,6 +1495,13 @@ APPS.paint = {
     });
     winEl.querySelector('#paint-size').addEventListener('input', (e)=>{ size = e.target.value; });
     winEl.querySelector('#paint-clear').addEventListener('click', ()=>{ ctx.fillStyle='#fff'; ctx.fillRect(0,0,canvas.width,canvas.height); });
+    winEl.querySelector('#paint-export').addEventListener('click', ()=>{
+      canvas.toBlob(function(blob){
+        if(!blob){ notify('Export failed','Could not export this canvas.','⚠️'); return; }
+        downloadBlob(blob, 'lumen-paint-'+Date.now()+'.png');
+        notify('Exported','Your drawing was downloaded as a PNG.', '🎨');
+      }, 'image/png');
+    });
     function pos(e){
       const r = canvas.getBoundingClientRect();
       return [e.clientX-r.left, e.clientY-r.top];
@@ -1535,6 +1622,23 @@ setInterval(()=>{
 $('#widget-music-toggle').addEventListener('click', toggleMusic);
 $('#widget-music-prev').addEventListener('click', ()=>shiftTrack(-1));
 $('#widget-music-next').addEventListener('click', ()=>shiftTrack(1));
+
+/* ============================================================
+   REAL FILE DOWNLOADS (Blob-based, works for any user-generated content)
+   ============================================================ */
+function downloadBlob(blob, filename){
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(()=> URL.revokeObjectURL(url), 4000);
+}
+function downloadText(text, filename){
+  downloadBlob(new Blob([text], {type:'text/plain'}), filename);
+}
 
 /* ============================================================
    START MENU / TASKBAR / DESKTOP ICONS
