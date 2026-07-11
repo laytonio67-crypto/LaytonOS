@@ -1232,35 +1232,79 @@ APPS.calculator = {
   }
 };
 
-const BROWSER_PAGES = {
-  'home://start': {title:'Start Page', html:'<div class="bp-hero">Start Page</div><p class="muted">Your simulated home page. Try searching for something below, or visit a shortcut.</p>'},
-  'home://weather': {title:'Weather', html:'<div class="bp-hero">🌤️ Weather</div><p>Jacksonville, FL — 88°F, partly cloudy with a light breeze. Highs near 90° this week.</p>'},
-  'home://news': {title:'Daily Brief', html:'<div class="bp-hero">📰 Daily Brief</div><p class="muted">Top story: fictional desktop environment ships a Fluent-style refresh with a centered taskbar and Snap flyouts.</p>'},
-  'home://about': {title:'About', html:'<div class="bp-hero">About this Browser</div><p class="muted">A fictional browser built entirely for this demo — no real network access, just a bit of imagination.</p>'},
-};
+const BROWSER_HOME = 'https://duckduckgo.com/html/';
+const BROWSER_SHORTCUTS = [
+  {label:'DuckDuckGo', url:'https://duckduckgo.com/html/'},
+  {label:'Wikipedia', url:'https://en.wikipedia.org/wiki/Special:Random'},
+  {label:'Example.com', url:'https://example.com'},
+  {label:'Hacker News', url:'https://news.ycombinator.com'},
+];
+function normalizeUrl(raw){
+  raw = raw.trim();
+  if(!raw) return BROWSER_HOME;
+  const looksLikeUrl = /^https?:\/\//i.test(raw) || (/^[\w-]+(\.[\w-]+)+/.test(raw) && !raw.includes(' '));
+  if(looksLikeUrl){ return /^https?:\/\//i.test(raw) ? raw : 'https://' + raw; }
+  return 'https://duckduckgo.com/html/?q=' + encodeURIComponent(raw);
+}
 APPS.browser = {
-  title:'Browser', icon:'🌐', width:700, height:480,
+  title:'Browser', icon:'🌐', width:760, height:520,
   render(){
-    return '<div class="browser-wrap"><div class="browser-bar"><button id="br-back">←</button><button id="br-fwd">→</button><input id="browser-url" value="home://start"/><button id="br-go">Go</button></div>'+
-      '<div class="browser-page" id="browser-page"></div></div>';
+    return '<div class="browser-wrap">'+
+      '<div class="browser-bar">'+
+        '<button id="br-back" title="Back">←</button>'+
+        '<button id="br-fwd" title="Forward">→</button>'+
+        '<button id="br-reload" title="Reload">⟳</button>'+
+        '<input id="browser-url" value="'+BROWSER_HOME+'"/>'+
+        '<button id="br-go">Go</button>'+
+        '<button id="br-newtab" class="ghost-btn" title="Open this page in a real new tab">Open in tab ↗</button>'+
+      '</div>'+
+      '<div id="br-shortcuts" style="display:flex;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border);flex-wrap:wrap;"></div>'+
+      '<div id="br-loading" style="display:none;font-size:11.5px;color:var(--text-secondary);padding:4px 12px;">Loading…</div>'+
+      '<div id="br-blocked-note" style="display:none;font-size:11.5px;color:var(--text-secondary);padding:6px 12px;background:rgba(255,255,255,.04);border-bottom:1px solid var(--border);">This site may refuse to display inside an embedded window (many sites block that for security). Use "Open in tab" if the page looks blank.</div>'+
+      '<iframe id="browser-frame" style="flex:1;border:none;width:100%;background:#fff;" referrerpolicy="no-referrer" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"></iframe>'+
+    '</div>';
   },
   init(winEl){
-    let history_ = ['home://start']; let idx = 0;
-    const urlInput = winEl.querySelector('#browser-url'); const page = winEl.querySelector('#browser-page');
+    let history_ = [BROWSER_HOME]; let idx = 0;
+    const urlInput = winEl.querySelector('#browser-url');
+    const frame = winEl.querySelector('#browser-frame');
+    const loadingEl = winEl.querySelector('#br-loading');
+    const blockedNote = winEl.querySelector('#br-blocked-note');
+    const shortcuts = winEl.querySelector('#br-shortcuts');
+
+    BROWSER_SHORTCUTS.forEach(s=>{
+      const b = el('button',{class:'ghost-btn',style:'font-size:11.5px;padding:5px 10px;',html:s.label});
+      b.addEventListener('click', ()=> go(s.url));
+      shortcuts.appendChild(b);
+    });
+
     function render(){
-      const url = history_[idx]; urlInput.value = url;
-      if(BROWSER_PAGES[url]){ page.innerHTML = BROWSER_PAGES[url].html; }
-      else {
-        const q = url.replace('search://','');
-        page.innerHTML = '<div class="bp-hero">Results for "'+q+'"</div><p class="muted">No live web access in this simulation — but here are some make-believe results.</p>'+
-          '<div class="widget-card"><h4>'+q+' — Overview</h4><p style="font-size:12.5px;">A simulated summary about '+q+' would appear here.</p></div>';
-      }
+      const url = history_[idx];
+      urlInput.value = url;
+      loadingEl.style.display = 'block';
+      blockedNote.style.display = 'none';
+      frame.src = url;
     }
-    function go(url){ history_ = history_.slice(0, idx+1); history_.push(url); idx = history_.length-1; render(); }
-    winEl.querySelector('#br-go').addEventListener('click', ()=>{ let val = urlInput.value.trim(); if(!BROWSER_PAGES[val]) val = 'search://' + val; go(val); });
-    urlInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter') winEl.querySelector('#br-go').click(); });
+    function go(rawOrUrl){
+      const url = normalizeUrl(rawOrUrl);
+      history_ = history_.slice(0, idx+1);
+      history_.push(url);
+      idx = history_.length-1;
+      render();
+    }
+    frame.addEventListener('load', ()=>{
+      loadingEl.style.display = 'none';
+      // Cross-origin iframes can't be inspected for X-Frame-Options failures directly,
+      // so just surface a gentle reminder that some sites won't render here.
+      blockedNote.style.display = 'block';
+      setTimeout(()=>{ blockedNote.style.display = 'none'; }, 6000);
+    });
+    winEl.querySelector('#br-go').addEventListener('click', ()=> go(urlInput.value));
+    urlInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter') go(urlInput.value); });
     winEl.querySelector('#br-back').addEventListener('click', ()=>{ if(idx>0){ idx--; render(); } });
     winEl.querySelector('#br-fwd').addEventListener('click', ()=>{ if(idx<history_.length-1){ idx++; render(); } });
+    winEl.querySelector('#br-reload').addEventListener('click', ()=> render());
+    winEl.querySelector('#br-newtab').addEventListener('click', ()=> window.open(history_[idx], '_blank', 'noopener,noreferrer'));
     render();
   }
 };
